@@ -24,3 +24,7 @@ changes underneath them.
 Both take a text file of one .flp path per line. Generate one with:
 
     find /c -iname '*.flp' -type f 2>/dev/null | sed -E 's|^/c/|C:/|' > flps.txt
+- `zip-fixture.mjs <out> <source.flp> <sample...>` — builds a synthetic zipped
+  project (mixing stored and deflated entries) to exercise the ZIP container
+  code path, since no real FL "save with all files" archive exists on this
+  machine to test against.

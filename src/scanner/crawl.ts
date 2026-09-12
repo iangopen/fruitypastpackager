@@ -36,6 +36,11 @@ export interface CrawlOptions {
   maxQueue?: number;
   /** Directory names skipped outright. */
   skipDirs?: ReadonlySet<string>;
+  /**
+   * Which files to yield, by lowercased file name. Defaults to `.flp`.
+   * The resolver reuses this walker to build its audio-file index.
+   */
+  matchFile?: (lowerName: string) => boolean;
   onError?: (err: CrawlError) => void;
   /**
    * Counters, mutated in place as the walk proceeds.
@@ -75,7 +80,7 @@ function message(err: unknown): string {
 }
 
 /**
- * Yields every .flp path under `root`.
+ * Yields every matching file path under `root` (.flp by default).
  *
  * Depth-first via an explicit stack: recursion would risk a stack overflow on a
  * deep tree, and a LIFO frontier keeps the pending queue proportional to depth
@@ -88,6 +93,7 @@ export function* crawlForFlp(
   const maxDepth = options.maxDepth ?? 64;
   const maxQueue = options.maxQueue ?? 100_000;
   const skipDirs = options.skipDirs ?? DEFAULT_SKIP;
+  const matchFile = options.matchFile ?? ((n: string) => n.endsWith('.flp'));
   const onError = options.onError ?? (() => {});
 
   const stats = options.stats ?? newCrawlStats();
@@ -189,7 +195,7 @@ export function* crawlForFlp(
         continue;
       }
 
-      if (isFile && d.name.toLowerCase().endsWith('.flp')) {
+      if (isFile && matchFile(d.name.toLowerCase())) {
         yield full;
       }
     }

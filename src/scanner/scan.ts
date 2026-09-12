@@ -10,7 +10,8 @@ import { statSync } from 'node:fs';
 import { basename } from 'node:path';
 import type { Db } from '../db/index.js';
 import type { FlpProject } from '../parser/flp.js';
-import { parseFlpFile } from '../parser/flp.js';
+import { parseFlpBuffer, parseFlpFile } from '../parser/flp.js';
+import { looksLikeZip, readZip, readZipEntry } from '../resolver/zip.js';
 import { type CrawlError, type CrawlStats, crawlForFlp, newCrawlStats } from './crawl.js';
 
 /**
@@ -43,6 +44,31 @@ export interface ScanSummary {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/**
+ * Parses the .flp stored inside a zipped project container.
+ *
+ * UNTESTED against a real FL archive: no .flp on this machine is a ZIP
+ * container, so the assumption that the archive holds exactly one .flp is
+ * taken from the format's documented behaviour, not observed. Ambiguity throws
+ * rather than picking one.
+ */
+function parseZippedProject(file: string, includeNotes: boolean): FlpProject {
+  const container = readZip(file);
+  if (!container) throw new Error('looks like a zip container but the archive could not be read');
+  const inner = container.entries.filter((e) => e.name.toLowerCase().endsWith('.flp'));
+  if (inner.length === 0) throw new Error('zip container holds no .flp');
+  if (inner.length > 1) {
+    throw new Error(`zip container holds ${inner.length} .flp files; cannot tell which is the project`);
+  }
+  const entry = inner[0];
+  if (!entry) throw new Error('zip container holds no .flp');
+  const buf = readZipEntry(container, entry);
+  if (!buf) throw new Error(`could not extract ${entry.name} from container`);
+  const project = parseFlpBuffer(buf, file, { includeNotes });
+  project.warnings.push(`project read from zip container entry ${entry.name}`);
+  return project;
 }
 
 /** Marks a raw path that carries an FL path variable such as %FLStudioFactoryData%. */
@@ -232,7 +258,12 @@ export function scan(db: Db, root: string, options: ScanOptions = {}): ScanSumma
     let parsed: FlpProject | null = null;
     let parseError: string | null = null;
     try {
-      parsed = parseFlpFile(file, { includeNotes });
+      // A "save with all files" project is a ZIP container whose .flp lives
+      // inside it. Detect that by magic bytes rather than extension, since FL
+      // keeps the .flp extension on the container.
+      parsed = looksLikeZip(file)
+        ? parseZippedProject(file, includeNotes)
+        : parseFlpFile(file, { includeNotes });
     } catch (err) {
       parseError = err instanceof Error ? err.message : String(err);
     }

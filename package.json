@@ -1,0 +1,23 @@
+{
+  "name": "drumkit-extractor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Scans FL Studio projects and builds organized, deduplicated drumkit folders.",
+  "bin": {
+    "drumkit-extractor": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "parse": "tsx src/cli.ts parse"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

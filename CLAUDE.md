@@ -41,6 +41,17 @@ A tool that scans every FL Studio project (`.flp`) on Ian's machine and builds o
 
 ## Known risk areas (flag if you hit these)
 
-- FL Studio format version drift — event layout has changed across major FL versions; the header's format-version field must gate any version-specific parsing.
+- FL Studio format version drift — event layout has changed across major FL versions; the header's format-version field must gate any version-specific parsing. Confirmed in Session 1 (see Findings Log) — this is not theoretical.
 - Sample path resolution will be the most time-consuming part of the whole project, not the parser. Budget for it accordingly.
 - Third-party synth preset extraction is not expected to generalize — do not sink session time into it beyond the planned spike.
+
+## Findings log
+
+**Session 1 (Parser):**
+
+- **Open / unresolved — event ID 172 payload width.** ID 172 sits in the generic dword (4-byte) range by the ID-range heuristic, but at least one FL version (25.2.5) appears to write it with a narrower payload — reading it as a dword desyncs the stream by one byte, silently swallowing the project title and tempo event with no error (symptom: ~63 bogus ChanEnabled events, tempo missing). The one occurrence found so far is genuinely ambiguous: bytes `ac 01 01 00` parse identically in total length whether read as (172, 3-byte payload) or as (172, 1-byte payload) followed by (event 1, 1-byte payload) — both land on the same next offset, so this single instance cannot distinguish the two hypotheses. Do not treat this as settled. First task of Session 2 is to resolve it with cross-file evidence (see Session 2 prompt).
+- **Note struct layout confirmed** (24 bytes each): position = u32 LE @ offset 0, flags = u16 LE @ offset 4, rack channel = u16 LE @ offset 6, length = u32 LE @ offset 8, key = u8 @ offset 12, velocity = u8 @ offset 20. Bytes 13–19 and 21–23 not yet decoded (likely fine pitch / mod X/Y) — decode these in Session 5 (MIDI export), not before.
+- **Sample paths can carry a `%FLStudioFactoryData%`-style variable prefix.** The Session 3 resolver needs to expand this as an additional case alongside the direct/sibling/basename-index/fuzzy-match chain already planned.
+- **Text event 203 (name field) can appear outside its owning channel's scope.** Current parser uses first-occurrence-wins within a context to avoid a mixer effect name leaking into the last-seen channel. Revisit if a wrong channel name shows up downstream.
+- Verified against a real project (`beatbattlesecondmay132026.flp`): 18 channels, 7 patterns, tempo 134, PPQ 96, 4/4, zero warnings. Generator-plugin channels (e.g. FLEX Bass) and audio-clip channels are already distinguished correctly.
+- Full-drive sweep: 26 `.flp` files found, 26 clean (channel counts match header), 0 warnings, 0 errors. Note: only one of those 26 files is known to contain event 172, and that instance is the ambiguous one above — so this sweep does not yet independently confirm the payload-width decision.

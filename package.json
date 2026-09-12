@@ -8,16 +8,21 @@
     "drumkit-extractor": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"require('fs').copyFileSync('src/db/schema.sql','dist/db/schema.sql')\"",
     "typecheck": "tsc --noEmit",
-    "parse": "tsx src/cli.ts parse"
+    "parse": "tsx src/cli.ts parse",
+    "scan": "tsx src/cli.ts scan"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.20.2",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
   }
 }

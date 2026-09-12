@@ -14,3 +14,13 @@ changes underneath them.
   counts must match the header.
 - `sweep.mjs <flp...>` — runs the real CLI over many projects and prints a
   one-line plausibility summary each.
+- `event172.mjs <file-list.txt>` — the Session 2 cross-file check on event 172:
+  validates competing payload-width rules against a whole corpus and looks for
+  an occurrence where the rules diverge.
+- `event172-detail.mjs <file-list.txt>` — follow-up to the above: exact byte
+  patterns at each occurrence, corpus-wide frequency of event ID 1, and how the
+  project header's event sequence evolved across FL versions.
+
+Both take a text file of one .flp path per line. Generate one with:
+
+    find /c -iname '*.flp' -type f 2>/dev/null | sed -E 's|^/c/|C:/|' > flps.txt

@@ -34,6 +34,40 @@ const EventId = {
 const NOTE_STRUCT_SIZE = 24;
 
 /**
+ * Field offsets within a note struct, confirmed against real projects.
+ * Bytes 13-19 and 21-23 are not decoded here (likely fine pitch and mod X/Y);
+ * they are left alone rather than guessed at.
+ */
+const NOTE = {
+  position: 0, // u32 LE, ticks
+  flags: 4, // u16 LE
+  rackChannel: 6, // u16 LE
+  length: 8, // u32 LE, ticks
+  key: 12, // u8
+  velocity: 20, // u8
+} as const;
+
+export interface FlpNote {
+  position: number;
+  length: number;
+  key: number;
+  velocity: number;
+  rackChannel: number;
+  flags: number;
+}
+
+function decodeNote(d: Buffer, o: number): FlpNote {
+  return {
+    position: d.readUInt32LE(o + NOTE.position),
+    flags: d.readUInt16LE(o + NOTE.flags),
+    rackChannel: d.readUInt16LE(o + NOTE.rackChannel),
+    length: d.readUInt32LE(o + NOTE.length),
+    key: d[o + NOTE.key] ?? 0,
+    velocity: d[o + NOTE.velocity] ?? 0,
+  };
+}
+
+/**
  * FL's channel type byte (event 21). Sample-based types (Sampler, AudioClip)
  * are the ones that carry a real audio file; plugin generators carry opaque
  * plugin state instead.
@@ -59,6 +93,8 @@ export interface FlpPattern {
   id: number;
   name: string | null;
   noteCount: number;
+  /** Populated only when `includeNotes` is set. */
+  notes: FlpNote[];
 }
 
 export interface FlpProject {
@@ -77,6 +113,12 @@ export interface FlpProject {
   timeSignature: { numerator: number; denominator: number } | null;
   channels: FlpChannel[];
   patterns: FlpPattern[];
+  /**
+   * True when the stream contained event ID 172, whose payload width is
+   * assumed rather than proven. Callers surface this so the assumption stays
+   * visible instead of silently riding along in every row.
+   */
+  hasEvent172: boolean;
   stats: {
     eventCount: number;
     /** Event IDs seen but not interpreted, with occurrence counts. */
@@ -115,7 +157,13 @@ function readChunks(buf: Buffer, warnings: string[]) {
   return { formatVersion, channelCountInHeader, ppq, eventsStart, eventsEnd };
 }
 
-export function parseFlpBuffer(buf: Buffer, file: string): FlpProject {
+export interface ParseOptions {
+  /** Decode every note struct, not just count them. Off by default: the CLI's
+   *  summary does not need them and a large project holds thousands. */
+  includeNotes?: boolean;
+}
+
+export function parseFlpBuffer(buf: Buffer, file: string, options: ParseOptions = {}): FlpProject {
   const warnings: string[] = [];
   const { formatVersion, channelCountInHeader, ppq, eventsStart, eventsEnd } = readChunks(
     buf,
@@ -136,6 +184,7 @@ export function parseFlpBuffer(buf: Buffer, file: string): FlpProject {
     timeSignature: null,
     channels: [],
     patterns: [],
+    hasEvent172: false,
     stats: { eventCount: events.length, unhandledEventIds: {} },
     warnings,
   };
@@ -162,6 +211,7 @@ export function parseFlpBuffer(buf: Buffer, file: string): FlpProject {
 
   for (const ev of events) {
     const { id, data } = ev;
+    if (id === 172) project.hasEvent172 = true;
     if (!handled.has(id)) {
       project.stats.unhandledEventIds[id] = (project.stats.unhandledEventIds[id] ?? 0) + 1;
       continue;
@@ -187,7 +237,7 @@ export function parseFlpBuffer(buf: Buffer, file: string): FlpProject {
         const patId = data.readUInt16LE(0);
         let pat = patternsById.get(patId);
         if (!pat) {
-          pat = { id: patId, name: null, noteCount: 0 };
+          pat = { id: patId, name: null, noteCount: 0, notes: [] };
           patternsById.set(patId, pat);
         }
         currentPattern = pat;
@@ -204,7 +254,13 @@ export function parseFlpBuffer(buf: Buffer, file: string): FlpProject {
             `pattern ${currentPattern.id}: note blob ${data.length} bytes is not a multiple of ${NOTE_STRUCT_SIZE}`,
           );
         }
-        currentPattern.noteCount += Math.floor(data.length / NOTE_STRUCT_SIZE);
+        const count = Math.floor(data.length / NOTE_STRUCT_SIZE);
+        currentPattern.noteCount += count;
+        if (options.includeNotes) {
+          for (let i = 0; i < count; i++) {
+            currentPattern.notes.push(decodeNote(data, i * NOTE_STRUCT_SIZE));
+          }
+        }
         break;
       }
 
@@ -312,6 +368,6 @@ export function parseFlpBuffer(buf: Buffer, file: string): FlpProject {
   return project;
 }
 
-export function parseFlpFile(path: string): FlpProject {
-  return parseFlpBuffer(readFileSync(path), path);
+export function parseFlpFile(path: string, options: ParseOptions = {}): FlpProject {
+  return parseFlpBuffer(readFileSync(path), path, options);
 }
